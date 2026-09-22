@@ -1,0 +1,25 @@
+# Ortam değişkenleri 
+.env
+**/.env
+
+# Python sanal ortamlar 
+venv/
+.venv/
+**/venv/
+**/.venv/
+__pycache__/
+*.pyc
+
+# Node / Expo
+node_modules/
+**/node_modules/
+.expo/
+**/.expo/
+
+# Loglar
+*.log
+**/*.log
+
+# Sistem dosyaları
+.DS_Store
+Thumbs.db

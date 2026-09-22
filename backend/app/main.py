@@ -1,0 +1,42 @@
+import os
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from . import models
+from .database import engine
+from .routers import items, outfits, upload
+
+app = FastAPI(title="Kombin API")
+
+models.Base.metadata.create_all(bind=engine)
+
+allowed_origins = [
+    origin.strip()
+    for origin in os.getenv(
+        "ALLOWED_ORIGINS",
+        "http://localhost:8081,http://localhost:8082,http://localhost:8083,http://localhost:8084,http://localhost:19006",
+    ).split(",")
+    if origin.strip()
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(items.router)
+app.include_router(outfits.router)
+app.include_router(upload.router)
+
+@app.get("/")
+def root():
+    return {"message": "Kombin API çalışıyor"}
+
+
+@app.get("/health", tags=["health"])
+def health_check():
+    return {"status": "ok"}
+
