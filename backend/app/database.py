@@ -1,23 +1,35 @@
-from sqlalchemy import create_engine
+from pathlib import Path
+
+from sqlalchemy import create_engine, event
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-import os
 from dotenv import load_dotenv
+import os
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL")
-
-if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL is missing. Copy backend/.env.example to backend/.env and configure it.")
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+DATABASE_PATH = Path(
+    os.getenv("WARDROBE_DB_PATH", str(BACKEND_DIR / "data" / "wardrobe.db"))
+)
+if not DATABASE_PATH.is_absolute():
+    DATABASE_PATH = BACKEND_DIR / DATABASE_PATH
+DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 engine = create_engine(
-    DATABASE_URL,
+    f"sqlite:///{DATABASE_PATH.as_posix()}",
+    connect_args={"check_same_thread": False},
     pool_pre_ping=True,
-    pool_recycle=1800,
-    pool_size=5,
-    max_overflow=10,
 )
+
+
+@event.listens_for(engine, "connect")
+def enable_sqlite_foreign_keys(connection, _):
+    cursor = connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
+
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 

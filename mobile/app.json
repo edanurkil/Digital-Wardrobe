@@ -1,14 +1,14 @@
 {
   "expo": {
-    "name": "mobile",
+    "name": "Kombin",
     "slug": "mobile",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "mobile",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "dark",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/images/icon.png"
     },
     "android": {
       "usesCleartextTraffic": true,
@@ -20,7 +20,6 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.edanurkil.mobile"
-      
     },
     "web": {
       "output": "static",
@@ -31,9 +30,9 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
+          "backgroundColor": "#17141A",
           "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
+          "imageWidth": 150
         }
       ],
       "expo-image",
@@ -48,6 +47,7 @@
       "eas": {
         "projectId": "5ed532e9-6a13-48b7-b884-5f2b380a9069"
       }
-    }
+    },
+    "owner": "edanurkil"
   }
 }

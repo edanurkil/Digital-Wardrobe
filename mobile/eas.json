@@ -4,13 +4,13 @@
   },
   "build": {
     "preview": {
-      "env": {
-        "EXPO_PUBLIC_API_URL": "http://192.168.1.102:8001"
-      },
+      "environment": "preview",
       "android": {
         "buildType": "apk"
       }
     },
-    "production": {}
+    "production": {
+      "environment": "production"
+    }
   }
 }

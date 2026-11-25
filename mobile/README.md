@@ -41,6 +41,12 @@ This command will move the starter code to the **app-example** directory and cre
 - If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
 - Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
 
+## Data and access
+
+The app uses Supabase Auth, Postgres, and private Storage for user accounts, wardrobe data, and photos. Apply `../supabase/schema.sql` to the project and configure the Expo public Supabase URL and anon/publishable key before running the app.
+
+The FastAPI service is only used for background removal during photo uploads. It must be configured with Supabase credentials on the server and deployed to HTTPS for APK use. See the repository README for setup.
+
 ## Learn more
 
 To learn more about developing your project with Expo, look at the following resources:

@@ -1,61 +1,62 @@
 import os
-from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+
 import jwt
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import PyJWKClient
-from dotenv import load_dotenv
+from jwt.exceptions import PyJWKClientConnectionError, PyJWKClientError
 
-load_dotenv()
-
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-if not SUPABASE_URL:
-    raise RuntimeError("SUPABASE_URL is missing in backend/.env")
-
-JWKS_URL = f"{SUPABASE_URL}/auth/v1/.well-known/jwks.json"
-jwks_client = PyJWKClient(JWKS_URL)
-
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
 security = HTTPBearer(auto_error=False)
+JWKS_CLIENT = (
+    PyJWKClient(f"{SUPABASE_URL}/auth/v1/.well-known/jwks.json")
+    if SUPABASE_URL
+    else None
+)
+SUPPORTED_ALGORITHMS = ["ES256", "RS256", "EdDSA"]
 
 
-def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+def get_current_user_id(
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+) -> str:
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required",
+            detail="Giriş yapman gerekiyor.",
             headers={"WWW-Authenticate": "Bearer"},
+        )
+    if JWKS_CLIENT is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Supabase kimlik doğrulama ayarları eksik.",
         )
 
-    token = credentials.credentials
     try:
-        signing_key = jwks_client.get_signing_key_from_jwt(token)
+        signing_key = JWKS_CLIENT.get_signing_key_from_jwt(credentials.credentials)
         payload = jwt.decode(
-            token,
+            credentials.credentials,
             signing_key.key,
-            algorithms=["ES256"],
+            algorithms=SUPPORTED_ALGORITHMS,
             audience="authenticated",
+            issuer=f"{SUPABASE_URL}/auth/v1",
         )
-    except Exception:
+    except PyJWKClientConnectionError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Supabase kimlik doğrulama servisine ulaşılamadı.",
+        ) from error
+    except (PyJWKClientError, jwt.InvalidTokenError) as error:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
+            detail="Oturum geçersiz veya süresi dolmuş.",
             headers={"WWW-Authenticate": "Bearer"},
-        )
+        ) from error
 
     user_id = payload.get("sub")
     if not user_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token missing user identity",
+            detail="Oturum kullanıcı bilgisi içermiyor.",
             headers={"WWW-Authenticate": "Bearer"},
         )
-
-    return {
-        "id": str(user_id),
-        "email": payload.get("email"),
-        "payload": payload,
-        "token_expires_at": payload.get("exp"),
-    }
-
-
-def get_current_user_id(current_user: dict = Depends(get_current_user)) -> str:
-    return current_user["id"]
+    return str(user_id)

@@ -6,46 +6,42 @@
 import "@/global.css";
 
 import { Platform } from "react-native";
+import { UI } from "@/constants/design";
 
 export const Colors = {
   light: {
-    text: "#4A3B42",
-    background: "#FDFBF7",
-    backgroundElement: "#F9ECEC",
-    backgroundSelected: "#E5B4B2",
-    textSecondary: "#7D646E",
+    text: UI.colors.textPrimary,
+    background: UI.colors.background,
+    backgroundElement: UI.colors.surface,
+    backgroundSelected: UI.colors.primarySoft,
+    textSecondary: UI.colors.textSecondary,
   },
   dark: {
-    text: "#ffffff",
-    background: "#1a1025",
-    backgroundElement: "#2e1f45",
-    backgroundSelected: "#a888ff",
-    textSecondary: "#c9b8e0",
+    text: UI.colors.textPrimary,
+    background: UI.colors.background,
+    backgroundElement: UI.colors.surface,
+    backgroundSelected: UI.colors.primarySoft,
+    textSecondary: UI.colors.textSecondary,
   },
 } as const;
 
 export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
 
-// Mor-pembe-lacivert marka paleti — özel ekranlarda (dolap, kombin, profil) doğrudan
-// import edip kullan: import { Brand } from "@/constants/theme";
 export const Brand = {
-  background: "#e9d3ff", // Açık mor
-  surface: "#f5e6ff", // Çok açık mor
-  border: "#a46bf1", // Orta mor
-
-  primary: "#b133ae", // Ana buton, seçili sekme - koyu mor
-  primaryDark: "#8b0f8a", // Basılı / aktif durum - daha koyu mor
-  primaryLight: "#e9d3ff", // Açık zemin
-  secondary: "#ee8dc9", // Alt vurgu - pembe
-
-  textPrimary: "#374271", // Lacivert
-  textSecondary: "#5f5a8a", // Açık lacivert
-  textOnPrimary: "#ffffff", // Beyaz metin mor arka planda
-  textMuted: "#a46bf1", // Sessiz mor ton
-
-  danger: "#e11d48",
-  success: "#16a34a",
-  favorite: "#ee8dc9", // Favori kalbi için pembe
+  background: UI.colors.background,
+  surface: UI.colors.surface,
+  border: UI.colors.border,
+  primary: UI.colors.primary,
+  primaryDark: UI.colors.primaryDark,
+  primaryLight: UI.colors.primarySoft,
+  secondary: UI.colors.accent,
+  textPrimary: UI.colors.textPrimary,
+  textSecondary: UI.colors.textSecondary,
+  textOnPrimary: UI.colors.white,
+  textMuted: UI.colors.textMuted,
+  danger: UI.colors.danger,
+  success: UI.colors.success,
+  favorite: UI.colors.accent,
 } as const;
 
 export const Fonts = Platform.select({

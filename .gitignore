@@ -9,6 +9,8 @@ venv/
 **/.venv/
 __pycache__/
 *.pyc
+backend/data/
+backend/uploads/
 
 # Node / Expo
 node_modules/

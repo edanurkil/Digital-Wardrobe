@@ -11,14 +11,17 @@ import {
   Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { Chip } from '@/components/ui/kombin-ui';
+import {
+  CATEGORIES,
+  CATEGORY_HINTS,
+  OTHER_CATEGORY_SUGGESTIONS,
+  SEASONS,
+  UI,
+} from '@/constants/design';
 import { createItem, uploadImage } from '../../services/api';
-import { getSession } from '@/lib/supabase';
 import { pickImageWithSourceChoice } from '../../utils/imagePicker';
-import { Brand } from "@/constants/theme";
-
-
-const CATEGORIES = ['Üst', 'Alt', 'Elbise', 'Dış Giyim', 'Ayakkabı', 'Aksesuar', 'Çanta'];
-const SEASONS = ['Yaz', 'Kış', 'İlkbahar', 'Sonbahar', 'Tüm Mevsimler'];
 
 function notify(title: string, message: string) {
   if (Platform.OS === 'web') {
@@ -36,7 +39,8 @@ export default function AddItemScreen() {
   const router = useRouter();
   const [name, setName] = useState('');
   const [color, setColor] = useState('');
-  const [category, setCategory] = useState(CATEGORIES[0]);
+  const [category, setCategory] = useState<string>(CATEGORIES[0].key);
+  const [otherCategory, setOtherCategory] = useState('');
   const [selectedSeasons, setSelectedSeasons] = useState<string[]>(['Tüm Mevsimler']);
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -66,15 +70,8 @@ export default function AddItemScreen() {
       notify('Eksik bilgi', 'Lütfen isim ve renk alanlarını doldur.');
       return;
     }
-
-    try {
-      const session = await getSession();
-      if (!session) {
-        router.replace('/auth');
-        return;
-      }
-    } catch {
-      router.replace('/auth');
+    if (category === 'Diğer' && !otherCategory.trim()) {
+      notify('Tür gerekli', 'Bir öneri seç ya da kendi kıyafet türünü yaz.');
       return;
     }
 
@@ -87,8 +84,8 @@ export default function AddItemScreen() {
 
       await createItem({
         name,
-        color,
-        category,
+        color: color.trim(),
+        category: category === 'Diğer' ? otherCategory.trim() : category,
         season: selectedSeasons.join(','),
         image_url: imageUrl,
       });
@@ -96,13 +93,10 @@ export default function AddItemScreen() {
       setName('');
       setColor('');
       setImageUri(null);
+      setOtherCategory('');
       setSelectedSeasons(['Tüm Mevsimler']);
       router.push('/(tabs)');
     } catch (err: any) {
-      if (err?.message?.includes('Oturum')) {
-        router.replace('/auth');
-        return;
-      }
       notify('Hata', err.message ?? 'Bir şeyler ters gitti.');
     } finally {
       setSaving(false);
@@ -110,15 +104,31 @@ export default function AddItemScreen() {
   };
 
   return (
-    <ScrollView style={styles.container}>
-      <Text style={styles.title}>Kıyafet Ekle</Text>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <View style={styles.heroRow}>
+        <View style={styles.heroCopy}>
+          <Text style={styles.eyebrow}>DOLABINA EKLE</Text>
+          <Text style={styles.title}>Yeni parça</Text>
+          <Text style={styles.intro}>Koleksiyonuna yeni bir parça ekle.</Text>
+        </View>
+        <Image
+          source={require('../../../assets/images/add-item-art.png')}
+          style={styles.heroArt}
+          resizeMode="contain"
+          accessible={false}
+        />
+      </View>
 
       <Text style={styles.label}>Fotoğraf</Text>
       <Pressable style={styles.imagePicker} onPress={pickImage}>
         {imageUri ? (
           <Image source={{ uri: imageUri }} style={styles.previewImage} />
         ) : (
-          <Text style={styles.imagePickerText}>+ Fotoğraf Seç</Text>
+          <View style={styles.imagePrompt}>
+            <Ionicons name="camera-outline" size={25} color={UI.colors.accent} />
+            <Text style={styles.imagePickerText}>Fotoğraf seç</Text>
+            <Text style={styles.imageHint}>İsteğe bağlı</Text>
+          </View>
         )}
       </Pressable>
 
@@ -128,6 +138,7 @@ export default function AddItemScreen() {
         value={name}
         onChangeText={setName}
         placeholder="Örn. Tişört"
+        placeholderTextColor={UI.colors.textMuted}
       />
 
       <Text style={styles.label}>Renk</Text>
@@ -136,43 +147,57 @@ export default function AddItemScreen() {
         value={color}
         onChangeText={setColor}
         placeholder="Örn. Beyaz"
+        placeholderTextColor={UI.colors.textMuted}
       />
 
       <Text style={styles.label}>Kategori</Text>
       <View style={styles.chipRow}>
-        {CATEGORIES.map((c) => (
-          <Pressable
-            key={c}
-            onPress={() => setCategory(c)}
-            style={[styles.chip, category === c && styles.chipSelected]}
-          >
-            <Text style={[styles.chipText, category === c && styles.chipTextSelected]}>
-              {c}
-            </Text>
-          </Pressable>
+        {CATEGORIES.map(({ key }) => (
+          <Chip
+            key={key}
+            label={key}
+            selected={category === key}
+            onPress={() => setCategory(key)}
+          />
         ))}
       </View>
+      {category === 'Diğer' ? (
+        <View style={styles.otherCategorySection}>
+          <Text style={styles.label}>Kıyafet türü</Text>
+          <TextInput
+            style={styles.input}
+            value={otherCategory}
+            onChangeText={setOtherCategory}
+            placeholder="Örn. Pijama, mayo, şal"
+            placeholderTextColor={UI.colors.textMuted}
+            autoCapitalize="words"
+            returnKeyType="done"
+          />
+          <Text style={styles.helperText}>Hazır türlerden birini seçebilir veya kendin yazabilirsin.</Text>
+          <View style={styles.chipRow}>
+            {OTHER_CATEGORY_SUGGESTIONS.map((suggestion) => (
+              <Chip
+                key={suggestion}
+                label={suggestion}
+                selected={otherCategory === suggestion}
+                onPress={() => setOtherCategory(suggestion)}
+              />
+            ))}
+          </View>
+        </View>
+      ) : (
+        <Text style={styles.helperText}>{CATEGORY_HINTS[category]}</Text>
+      )}
 
       <Text style={styles.label}>Mevsim (birden fazla seçebilirsin)</Text>
       <View style={styles.chipRow}>
-        {SEASONS.map((s) => (
-          <Pressable
-            key={s}
-            onPress={() => toggleSeason(s)}
-            style={[
-              styles.chip,
-              selectedSeasons.includes(s) && styles.chipSelected,
-            ]}
-          >
-            <Text
-              style={[
-                styles.chipText,
-                selectedSeasons.includes(s) && styles.chipTextSelected,
-              ]}
-            >
-              {s}
-            </Text>
-          </Pressable>
+        {SEASONS.map(({ key }) => (
+          <Chip
+            key={key}
+            label={key}
+            selected={selectedSeasons.includes(key)}
+            onPress={() => toggleSeason(key)}
+          />
         ))}
       </View>
 
@@ -190,48 +215,84 @@ export default function AddItemScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: Brand.background },
-  title: { fontSize: 24, fontWeight: 'bold', marginBottom: 20 },
-  label: { fontSize: 14, fontWeight: '600', marginTop: 12, marginBottom: 6 },
+  container: { flex: 1, backgroundColor: UI.colors.background },
+  content: { padding: UI.spacing.lg, paddingBottom: 48 },
+  heroRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: UI.spacing.sm,
+    marginTop: UI.spacing.md,
+    marginBottom: 8,
+  },
+  heroCopy: { flex: 1 },
+  heroArt: { width: 112, height: 96, opacity: 0.9 },
+  eyebrow: {
+    color: UI.colors.accent,
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 2,
+  },
+  title: {
+    color: UI.colors.textPrimary,
+    fontFamily: UI.fonts.display,
+    fontSize: 30,
+    marginTop: 4,
+  },
+  intro: { color: UI.colors.textSecondary, fontSize: 14, marginTop: 6, marginBottom: 10 },
+  label: {
+    color: UI.colors.textPrimary,
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: UI.spacing.lg,
+    marginBottom: UI.spacing.sm,
+  },
+  helperText: {
+    color: UI.colors.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: UI.spacing.sm,
+  },
+  otherCategorySection: { marginTop: UI.spacing.xs },
   input: {
     borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 10,
+    borderColor: UI.colors.border,
+    borderRadius: UI.radius.md,
+    backgroundColor: UI.colors.surface,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
     fontSize: 16,
+    color: UI.colors.textPrimary,
   },
   imagePicker: {
-    width: 120,
-    height: 120,
-    backgroundColor: '#f5f5f5',
-    borderRadius: 12,
+    height: 176,
+    backgroundColor: UI.colors.surface,
+    borderRadius: UI.radius.md,
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: UI.colors.border,
+    borderStyle: 'dashed',
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
   },
-  imagePickerText: { color: '#888', fontSize: 13, textAlign: 'center' },
+  imagePrompt: { alignItems: 'center', gap: 8 },
+  imagePickerText: { color: UI.colors.textPrimary, fontSize: 14, fontWeight: '600' },
+  imageHint: { color: UI.colors.textMuted, fontSize: 12 },
   previewImage: { width: '100%', height: '100%' },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: {
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    backgroundColor: '#f5f5f5',
-  },
-  chipSelected: { backgroundColor: '#222', borderColor: '#222' },
-  chipText: { fontSize: 14, color: '#333' },
-  chipTextSelected: { color: '#fff' },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: UI.spacing.sm },
   saveButton: {
-    marginTop: 28,
-    backgroundColor: '#222',
-    borderRadius: 10,
-    paddingVertical: 14,
+    marginTop: UI.spacing.xl,
+    backgroundColor: UI.colors.primaryDark,
+    borderColor: UI.colors.accent,
+    borderWidth: 1,
+    borderRadius: UI.radius.md,
+    paddingVertical: 15,
     alignItems: 'center',
     marginBottom: 40,
   },
-  saveButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  saveButtonText: {
+    color: UI.colors.textPrimary,
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+  },
 });

@@ -1,14 +1,14 @@
 import os
 
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from . import models
-from .database import engine
-from .routers import items, outfits, upload
+
+load_dotenv()
+
+from .routers import upload
 
 app = FastAPI(title="Kombin API")
-
-models.Base.metadata.create_all(bind=engine)
 
 allowed_origins = [
     origin.strip()
@@ -27,8 +27,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(items.router)
-app.include_router(outfits.router)
 app.include_router(upload.router)
 
 @app.get("/")

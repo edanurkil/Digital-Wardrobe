@@ -1,24 +1,21 @@
+import base64
+import binascii
+import io
+import logging
 import os
 import uuid
-import base64
-import io
+
 from fastapi import APIRouter, Depends, HTTPException
+from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, Field
-from PIL import Image
 from rembg import remove
-from supabase import create_client
-from dotenv import load_dotenv
+
 from ..auth import get_current_user_id
+from ..storage import BUCKET_NAME, get_storage_client
 
-load_dotenv()
-
+logger = logging.getLogger(__name__)
+REMBG_MODEL = os.getenv("REMBG_MODEL", "u2net")
 router = APIRouter(prefix="/upload", tags=["upload"])
-
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
-BUCKET_NAME = "clothing-images"
-
-supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
 
 class Base64ImageUpload(BaseModel):
@@ -30,12 +27,8 @@ def _trim_transparent_edges(image: Image.Image) -> Image.Image:
     if image.mode != "RGBA":
         image = image.convert("RGBA")
 
-    alpha = image.getchannel("A")
-    bbox = alpha.getbbox()
-    if bbox is None:
-        return image
-
-    return image.crop(bbox)
+    bbox = image.getchannel("A").getbbox()
+    return image.crop(bbox) if bbox else image
 
 
 def _process_clothing_image(image_bytes: bytes) -> bytes:
@@ -43,23 +36,24 @@ def _process_clothing_image(image_bytes: bytes) -> bytes:
         image = image.convert("RGBA")
         image.thumbnail((1280, 1280), Image.Resampling.LANCZOS)
 
-        processed = remove(image)
+        processed = remove(image, model_name=REMBG_MODEL)
         if processed.mode != "RGBA":
             processed = processed.convert("RGBA")
 
-        cropped = _trim_transparent_edges(processed)
-
         output = io.BytesIO()
-        cropped.save(output, format="PNG")
+        _trim_transparent_edges(processed).save(output, format="PNG")
         return output.getvalue()
 
 
 @router.post("/image-base64")
-def upload_image_base64(payload: Base64ImageUpload, user_id: str = Depends(get_current_user_id)):
+def upload_image_base64(
+    payload: Base64ImageUpload,
+    user_id: str = Depends(get_current_user_id),
+):
     try:
         image_bytes = base64.b64decode(payload.image_base64, validate=True)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Geçersiz base64 verisi")
+    except (binascii.Error, ValueError) as error:
+        raise HTTPException(status_code=400, detail="Geçersiz base64 verisi") from error
 
     if len(image_bytes) > 12_000_000:
         raise HTTPException(status_code=413, detail="Fotoğraf çok büyük (maksimum 12 MB)")
@@ -68,34 +62,41 @@ def upload_image_base64(payload: Base64ImageUpload, user_id: str = Depends(get_c
         with Image.open(io.BytesIO(image_bytes)) as image:
             source_format = (image.format or "JPEG").upper()
             image.verify()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Geçersiz veya desteklenmeyen fotoğraf")
+    except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError) as error:
+        raise HTTPException(
+            status_code=400,
+            detail="Geçersiz veya desteklenmeyen fotoğraf",
+        ) from error
+
+    source_formats = {
+        "JPEG": ("jpg", "image/jpeg"),
+        "PNG": ("png", "image/png"),
+        "WEBP": ("webp", "image/webp"),
+        "GIF": ("gif", "image/gif"),
+    }
+    if source_format not in source_formats:
+        raise HTTPException(status_code=400, detail="Desteklenmeyen fotoğraf biçimi")
 
     try:
         processed_bytes = _process_clothing_image(image_bytes)
-        file_ext = "png"
-        file_name = f"{uuid.uuid4()}.{file_ext}"
-        content_type = "image/png"
+        file_ext, content_type = "png", "image/png"
     except Exception:
+        logger.exception("Background removal failed; storing the original photo.")
         processed_bytes = image_bytes
-        fallback_formats = {
-            "JPEG": ("jpg", "image/jpeg"),
-            "PNG": ("png", "image/png"),
-            "WEBP": ("webp", "image/webp"),
-            "GIF": ("gif", "image/gif"),
-        }
-        file_ext, content_type = fallback_formats.get(source_format, ("bin", "application/octet-stream"))
-        file_name = f"{uuid.uuid4()}.{file_ext}"
+        file_ext, content_type = source_formats[source_format]
 
+    object_path = f"{user_id}/{uuid.uuid4()}.{file_ext}"
     try:
-        supabase.storage.from_(BUCKET_NAME).upload(
-            file_name,
+        get_storage_client().storage.from_(BUCKET_NAME).upload(
+            object_path,
             processed_bytes,
             {"content-type": content_type},
         )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Yükleme hatası: {str(e)}")
+    except Exception as error:
+        logger.exception("Supabase Storage upload failed.")
+        raise HTTPException(
+            status_code=502,
+            detail="Fotoğraf Supabase Storage'a yüklenemedi.",
+        ) from error
 
-    public_url = supabase.storage.from_(BUCKET_NAME).get_public_url(file_name)
-
-    return {"url": public_url}
+    return {"path": object_path}

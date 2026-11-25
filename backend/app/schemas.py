@@ -15,7 +15,6 @@ class ClothingItemCreate(ClothingItemBase):
 
 class ClothingItemResponse(ClothingItemBase):
     id: int
-    user_id: str
     created_at: datetime
 
     class Config:
@@ -34,7 +33,6 @@ class OutfitCreate(BaseModel):
 
 class OutfitResponse(BaseModel):
     id: int
-    user_id: str
     note: Optional[str] = None
     outfit_image_url: Optional[str] = None
     created_at: datetime
@@ -44,7 +42,6 @@ class OutfitResponse(BaseModel):
 
 class OutfitDetailResponse(BaseModel):
     id: int
-    user_id: str
     note: Optional[str] = None
     outfit_image_url: Optional[str] = None
     created_at: datetime

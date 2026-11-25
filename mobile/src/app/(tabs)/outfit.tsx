@@ -12,26 +12,17 @@ import {
   PanResponder,
 } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import {
   getItems,
   createOutfit,
   uploadImage,
   updateOutfitImage,
+  type ClothingItem,
 } from '../../services/api';
-import { getSession } from '@/lib/supabase';
 import { pickImageWithSourceChoice } from '../../utils/imagePicker';
-import { Brand } from "@/constants/theme";
+import { categoryIcon, UI } from '@/constants/design';
 
-
-type ClothingItem = {
-  id: number;
-  name: string;
-  category: string;
-  color: string;
-  image_url: string | null;
-  season?: string;
-  is_favorite?: boolean;
-};
 
 type GeneratedOutfit = {
   top: ClothingItem | null;
@@ -53,6 +44,19 @@ const CLASHING_PAIRS: [string, string][] = [
   ['sarı', 'mor'],
   ['yeşil', 'kırmızı'],
 ];
+
+const DRESS_CATEGORIES = new Set(['Elbise', 'Tulum']);
+const OUTERWEAR_CATEGORIES = new Set(['Dış Giyim', 'Hırka', 'Yelek']);
+const ACCESSORY_CATEGORIES = new Set([
+  'Aksesuar',
+  'Çorap',
+  'Gözlük',
+  'Kemer',
+  'Şal',
+  'Şapka',
+  'Takı',
+  'Atkı',
+]);
 
 function normalizeColor(color: string) {
   return color.trim().toLocaleLowerCase('tr-TR');
@@ -87,12 +91,12 @@ function pickWeightedFavorite(items: ClothingItem[]) {
 }
 
 // Bir kıyafetin mevsim alanı "Yaz,Kış" gibi virgülle ayrılmış olabilir
-function parseSeasons(season?: string): string[] {
+function parseSeasons(season?: string | null): string[] {
   if (!season) return ['Tüm Mevsimler'];
   return season.split(',').map((s) => s.trim());
 }
 
-function seasonsOverlap(itemSeason: string | undefined, targetSeasons: string[]) {
+function seasonsOverlap(itemSeason: string | null | undefined, targetSeasons: string[]) {
   if (targetSeasons.includes('Tüm Mevsimler')) return true;
   const itemSeasons = parseSeasons(itemSeason);
   if (itemSeasons.includes('Tüm Mevsimler')) return true;
@@ -156,20 +160,10 @@ export default function OutfitScreen() {
 
       (async () => {
         try {
-          const session = await getSession();
-          if (!session) {
-            router.replace('/auth');
-            return;
-          }
-
           const data = await getItems();
           if (mounted) setAllItems(data);
         } catch (err: any) {
           if (mounted) {
-            if (err?.message?.includes('Oturum')) {
-              router.replace('/auth');
-              return;
-            }
             setLoadError(err.message ?? 'Kıyafetler yüklenemedi.');
             console.error('Outfit load failed', err);
           }
@@ -181,7 +175,7 @@ export default function OutfitScreen() {
       return () => {
         mounted = false;
       };
-    }, [router])
+    }, [])
   );
 
   const generateOutfit = () => {
@@ -189,10 +183,14 @@ export default function OutfitScreen() {
 
     const tops = prioritizeFavorites(allItems.filter((i) => i.category === 'Üst'));
     const bottoms = prioritizeFavorites(allItems.filter((i) => i.category === 'Alt'));
-    const dresses = prioritizeFavorites(allItems.filter((i) => i.category === 'Elbise'));
-    const outerwears = prioritizeFavorites(allItems.filter((i) => i.category === 'Dış Giyim'));
+    const dresses = prioritizeFavorites(allItems.filter((i) => DRESS_CATEGORIES.has(i.category)));
+    const outerwears = prioritizeFavorites(
+      allItems.filter((i) => OUTERWEAR_CATEGORIES.has(i.category)),
+    );
     const shoesList = prioritizeFavorites(allItems.filter((i) => i.category === 'Ayakkabı'));
-    const accessories = prioritizeFavorites(allItems.filter((i) => i.category === 'Aksesuar'));
+    const accessories = prioritizeFavorites(
+      allItems.filter((i) => ACCESSORY_CATEGORIES.has(i.category)),
+    );
     const bags = prioritizeFavorites(allItems.filter((i) => i.category === 'Çanta'));
 
     const canUseDress = dresses.length > 0;
@@ -336,7 +334,7 @@ export default function OutfitScreen() {
   if (loading) {
     return (
       <View style={styles.container}>
-        <ActivityIndicator size="large" />
+        <ActivityIndicator size="large" color={UI.colors.accent} />
       </View>
     );
   }
@@ -344,7 +342,7 @@ export default function OutfitScreen() {
   if (loadError) {
     return (
       <View style={styles.container}>
-        <Text style={styles.emptyText}>Hata: {loadError}</Text>
+        <Text style={styles.emptyText}>{loadError}</Text>
         <Pressable style={styles.retryButton} onPress={() => router.replace('/(tabs)/outfit')}>
           <Text style={styles.retryButtonText}>Tekrar Dene</Text>
         </Pressable>
@@ -353,27 +351,49 @@ export default function OutfitScreen() {
   }
 
   const hasEnoughItems =
-    allItems.filter((i) => i.category === 'Elbise').length > 0 ||
-    (allItems.filter((i) => i.category === 'Üst').length > 0 &&
-      allItems.filter((i) => i.category === 'Alt').length > 0);
+    allItems.some((i) => DRESS_CATEGORIES.has(i.category)) ||
+    (allItems.some((i) => i.category === 'Üst') &&
+      allItems.some((i) => i.category === 'Alt'));
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Kombin Oluştur</Text>
+      <Text style={styles.eyebrow}>GÜNLÜK SEÇKİ</Text>
+      <Text style={styles.title}>Kombin oluştur</Text>
+      <Text style={styles.intro}>Dolabındaki parçalardan yeni bir görünüm oluştur.</Text>
 
       {!hasEnoughItems ? (
-        <Text style={styles.emptyText}>
-          Kombin oluşturmak için dolabında bir &quot;Elbise&quot; ya da en az bir &quot;Üst&quot; ve bir
-          &quot;Alt&quot; olmalı.
-        </Text>
+        <View style={styles.emptyState}>
+          <Image
+            source={require('../../../assets/images/outfit-illustration.png')}
+            style={styles.emptyIllustration}
+            resizeMode="contain"
+            accessible={false}
+          />
+          <View style={styles.emptyCopy}>
+            <Text style={styles.emptyStateText}>
+              Önce dolabına bir elbise ya da bir üst ve bir alt parça ekle.
+            </Text>
+            <Pressable
+              style={[styles.retryButton, styles.emptyRetryButton]}
+              onPress={() => router.push('/(tabs)/add-item')}
+            >
+              <Text style={styles.retryButtonText}>Parça ekle</Text>
+            </Pressable>
+          </View>
+        </View>
       ) : !outfit ? (
-        <Pressable style={styles.generateButton} onPress={generateOutfit}>
-          <Text style={styles.generateButtonText}>Kombin Öner</Text>
+        <Pressable
+          style={styles.generateButton}
+          onPress={generateOutfit}
+          accessibilityRole="button"
+        >
+          <Ionicons name="shuffle-outline" size={19} color={UI.colors.textPrimary} />
+          <Text style={styles.generateButtonText}>Yeni kombin</Text>
         </Pressable>
       ) : (
         <>
           <Text style={styles.swipeHint}>
-            ← Beğenmedim &nbsp;&nbsp;·&nbsp;&nbsp; Beğendim →
+            Beğenmediğini sola, beğendiğini sağa kaydır
           </Text>
 
           <Animated.View
@@ -408,16 +428,22 @@ export default function OutfitScreen() {
               style={[styles.actionButton, styles.rejectButton]}
               onPress={handleReject}
               disabled={saving}
+              accessibilityRole="button"
+              accessibilityLabel="Kombini geç"
             >
-              <Text style={styles.actionButtonText}>✕ Beğenmedim</Text>
+              <Ionicons name="close-outline" size={20} color={UI.colors.textSecondary} />
+              <Text style={styles.actionButtonText}>Geç</Text>
             </Pressable>
             <Pressable
               style={[styles.actionButton, styles.approveButton]}
               onPress={handleApprove}
               disabled={saving}
+              accessibilityRole="button"
+              accessibilityLabel="Kombini kaydet"
             >
+              <Ionicons name="checkmark-outline" size={20} color={UI.colors.accent} />
               <Text style={styles.actionButtonText}>
-                {saving ? 'Kaydediliyor...' : '✓ Beğendim'}
+                {saving ? 'Kaydediliyor...' : 'Kaydet'}
               </Text>
             </Pressable>
           </View>
@@ -436,7 +462,9 @@ function OutfitSlot({ label, item }: { label: string; item: ClothingItem | null 
           {item.image_url ? (
             <Image source={{ uri: item.image_url }} style={styles.imageThumb} />
           ) : (
-            <View style={styles.imagePlaceholder} />
+            <View style={styles.imagePlaceholder}>
+              <Ionicons name={categoryIcon(label)} size={22} color={UI.colors.textMuted} />
+            </View>
           )}
           <View style={{ flex: 1 }}>
             <Text style={styles.slotItemName} numberOfLines={1}>
@@ -455,49 +483,106 @@ function OutfitSlot({ label, item }: { label: string; item: ClothingItem | null 
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: Brand.background },
-  title: { fontSize: 24, fontWeight: 'bold', marginBottom: 16 },
-  emptyText: { fontSize: 16, color: '#888', textAlign: 'center', marginTop: 40 },
+  container: { flex: 1, padding: UI.spacing.lg, backgroundColor: UI.colors.background },
+  eyebrow: {
+    color: UI.colors.accent,
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 2,
+    marginTop: UI.spacing.md,
+  },
+  title: {
+    color: UI.colors.textPrimary,
+    fontFamily: UI.fonts.display,
+    fontSize: 30,
+    marginTop: 4,
+  },
+  intro: { fontSize: 14, color: UI.colors.textSecondary, marginTop: 6, marginBottom: 22 },
+  emptyText: {
+    fontSize: 14,
+    color: UI.colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginTop: UI.spacing.md,
+  },
+  emptyState: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    width: '100%',
+    maxWidth: 760,
+    borderWidth: 1,
+    borderColor: UI.colors.border,
+    borderRadius: UI.radius.lg,
+    backgroundColor: UI.colors.surface,
+    gap: UI.spacing.lg,
+    padding: UI.spacing.lg,
+    marginTop: UI.spacing.md,
+  },
+  emptyIllustration: { width: '34%', height: 116 },
+  emptyCopy: { flex: 1, alignItems: 'flex-start' },
+  emptyStateText: {
+    fontSize: 14,
+    color: UI.colors.textSecondary,
+    lineHeight: 22,
+  },
+  emptyRetryButton: { alignSelf: 'flex-start' },
   retryButton: {
     alignSelf: 'center',
     marginTop: 16,
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    borderRadius: 8,
-    backgroundColor: '#222',
+    paddingHorizontal: 20,
+    paddingVertical: 11,
+    borderRadius: UI.radius.md,
+    borderWidth: 1,
+    borderColor: UI.colors.accent,
+    backgroundColor: UI.colors.primaryDark,
   },
-  retryButtonText: { color: '#fff', fontWeight: '600' },
+  retryButtonText: { color: UI.colors.textPrimary, fontWeight: '600' },
   generateButton: {
-    backgroundColor: '#222',
-    borderRadius: 10,
-    paddingVertical: 14,
+    backgroundColor: UI.colors.primaryDark,
+    borderRadius: UI.radius.md,
+    paddingVertical: 15,
+    borderColor: UI.colors.accent,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: UI.spacing.sm,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  generateButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  generateButtonText: {
+    color: UI.colors.textPrimary,
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
   swipeHint: {
     textAlign: 'center',
-    color: '#999',
-    fontSize: 13,
-    marginBottom: 12,
+    color: UI.colors.textMuted,
+    fontSize: 12,
+    marginBottom: UI.spacing.md,
   },
   card: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 12,
+    backgroundColor: UI.colors.surface,
+    borderRadius: UI.radius.lg,
+    padding: UI.spacing.md,
     gap: 12,
     borderWidth: 1,
-    borderColor: '#eee',
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
+    borderColor: UI.colors.border,
+    boxShadow: UI.shadow.card,
   },
   slot: { marginBottom: 4 },
-  slotLabel: { fontSize: 14, fontWeight: '600', marginBottom: 6, color: '#555' },
+  slotLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    marginBottom: 7,
+    color: UI.colors.accent,
+  },
   slotCard: {
-    backgroundColor: '#f5f5f5',
-    borderRadius: 12,
-    padding: 12,
+    backgroundColor: UI.colors.surfaceAlt,
+    borderRadius: UI.radius.md,
+    padding: 10,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
@@ -505,17 +590,19 @@ const styles = StyleSheet.create({
   imagePlaceholder: {
     width: 50,
     height: 50,
-    backgroundColor: '#ddd',
-    borderRadius: 8,
+    backgroundColor: UI.colors.background,
+    borderRadius: UI.radius.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   imageThumb: {
     width: 50,
     height: 50,
-    borderRadius: 8,
+    borderRadius: UI.radius.sm,
   },
-  slotItemName: { fontSize: 15, fontWeight: '600' },
-  slotItemDetail: { fontSize: 13, color: '#666' },
-  slotEmpty: { fontSize: 13, color: '#aaa', fontStyle: 'italic' },
+  slotItemName: { fontSize: 14, fontWeight: '600', color: UI.colors.textPrimary },
+  slotItemDetail: { fontSize: 12, color: UI.colors.textSecondary, marginTop: 3 },
+  slotEmpty: { fontSize: 12, color: UI.colors.textMuted },
   actionRow: {
     flexDirection: 'row',
     gap: 12,
@@ -523,11 +610,15 @@ const styles = StyleSheet.create({
   },
   actionButton: {
     flex: 1,
-    borderRadius: 10,
-    paddingVertical: 14,
+    borderRadius: UI.radius.md,
+    paddingVertical: 13,
     alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 6,
+    borderWidth: 1,
   },
-  rejectButton: { backgroundColor: '#ef4444' },
-  approveButton: { backgroundColor: '#16a34a' },
-  actionButtonText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  rejectButton: { backgroundColor: UI.colors.surfaceAlt, borderColor: UI.colors.border },
+  approveButton: { backgroundColor: UI.colors.primaryDark, borderColor: UI.colors.accent },
+  actionButtonText: { color: UI.colors.textPrimary, fontSize: 13, fontWeight: '600' },
 });

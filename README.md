@@ -2,19 +2,44 @@
 
 Kombin is a wardrobe and outfit-planning app with an Expo mobile client and a FastAPI backend.
 
+## Architecture
+
+Supabase Auth manages accounts, Supabase Postgres stores wardrobe/outfit data, and private Supabase Storage stores photos. The Expo app talks directly to Supabase for those features; the local FastAPI process is not required for normal browsing, saving, or outfit creation.
+
+The FastAPI service is used only for the existing `rembg` background-removal step when uploading a photo. It verifies the user's Supabase access token and writes processed photos to Supabase Storage. Therefore the API must be reachable over HTTPS only for photo uploads; it does not store app data on its local filesystem.
+
+## Supabase setup
+
+1. Create a Supabase project.
+2. In the Supabase SQL Editor, run [`supabase/schema.sql`](./supabase/schema.sql). This creates the tables, per-user RLS policies, outfit ownership checks, and private photo bucket.
+3. In Supabase Authentication settings, enable **Anonymous Sign-Ins**, **Manual Linking**, and the email provider. Manual Linking is required to attach an email to an anonymous user.
+4. Copy `mobile/.env.example` to `mobile/.env`. Set the project URL and the public anon/publishable key from Supabase. Never use a `service_role`/secret key in the mobile app.
+
+The app's entry screen offers email/password sign-in or **Continue as guest**; it does not offer a separate public sign-up flow. A guest can make the account permanent from the profile screen: verify an email address, then set a password. Supabase links the email to the existing anonymous user, so the user's ID and wardrobe records remain unchanged. Guests should upgrade before signing out, clearing app data, or switching devices because anonymous credentials cannot be recovered. An email already attached to another Supabase account cannot be merged automatically; the guest session and its data remain intact if linking fails.
+
 ## Local development
 
-1. Copy `backend/.env.example` to `backend/.env` and fill in the backend-only values.
-2. Create a Python environment with Python 3.11+ and install `backend/requirements.txt`.
-3. Start the API from `backend` with `python -m uvicorn app.main:app --reload --port 8000`.
-4. Copy `mobile/.env.example` to `mobile/.env` and set `EXPO_PUBLIC_API_URL` to the API URL reachable by the device or browser.
-5. From `mobile`, run `npm ci` and `npm start`.
+1. From `backend`, install `requirements.txt`, copy `backend/.env.example` to `backend/.env`, and set `SUPABASE_URL` plus the server-only `SUPABASE_SERVICE_KEY`.
+2. Start the image API from `backend`: `python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000`.
+3. From `mobile`, run `npm ci` and `npm run web` (or `npm start` for Expo).
 
-The API exposes `/health` for deployment health checks. Production deployments must use HTTPS and set `ALLOWED_ORIGINS` to the deployed web origins.
+For local development, `EXPO_PUBLIC_API_URL` can be `http://localhost:8000`; the Expo client rewrites loopback to the Metro host on a device. The API exposes `/health`.
 
-## Security
+## Android APK
 
-Never commit `.env` files. The previously used Supabase service key and database password must be rotated in Supabase before deployment because they have been exposed during development. The service key belongs only on the backend; the mobile app may use the public anon key with correct Supabase RLS policies.
+The installed app must not use a developer computer's address. Deploy the Dockerized FastAPI image service to an HTTPS host, then set these EAS environment variables for both `preview` and `production`:
+
+- `EXPO_PUBLIC_SUPABASE_URL`
+- `EXPO_PUBLIC_SUPABASE_ANON_KEY` (or `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`)
+- `EXPO_PUBLIC_API_URL` (the HTTPS URL of the deployed image API)
+
+Set `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` as private environment variables on the API host. The service key must never be added to EAS or the app. Then build the APK with `cd mobile; eas build --profile preview --platform android`.
+
+The Supabase data and photo storage persist independently of the API host. Free API hosts can sleep, so the first photo upload after inactivity may be delayed or temporarily unavailable; normal wardrobe and outfit data still use Supabase directly. On a memory-constrained host, set `REMBG_MODEL=u2netp` to use the smaller, lower-quality background-removal model.
+
+## Security and existing data
+
+The app's tables and private Storage bucket enforce per-user access. Anonymous users use the authenticated database role, so the same per-user RLS policies apply to guests. Keep the Supabase service key server-side and rotate any credentials that were exposed during development. Existing SQLite records are not automatically copied to Supabase; back up and migrate them before removing any local data.
 
 ## Validation
 
@@ -27,7 +52,7 @@ npm exec -- tsc --noEmit
 npm exec -- expo export --platform web
 ```
 
-From the repository root, with the backend environment active:
+From the repository root:
 
 ```powershell
 python -m compileall backend/app backend/migrate_add_outfit_image.py

@@ -2,10 +2,10 @@ fastapi==0.115.12
 uvicorn[standard]==0.34.2
 SQLAlchemy==2.0.40
 psycopg2-binary==2.9.10
-PyJWT[crypto]==2.10.1
 python-dotenv==1.1.0
 python-multipart==0.0.20
 Pillow==11.2.1
 rembg==2.0.65
 onnxruntime==1.30.0
+PyJWT[crypto]==2.10.1
 supabase==2.15.0
