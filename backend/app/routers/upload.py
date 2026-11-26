@@ -15,13 +15,16 @@ from ..auth import get_current_user_id
 from ..storage import BUCKET_NAME, get_storage_client
 
 logger = logging.getLogger(__name__)
-REMBG_MODEL = os.getenv("REMBG_MODEL", "u2net")
+REMBG_MODEL = os.getenv("REMBG_MODEL", "u2netp")
 router = APIRouter(prefix="/upload", tags=["upload"])
 
 
 class Base64ImageUpload(BaseModel):
     image_base64: str = Field(..., min_length=1, max_length=16_000_000)
     file_ext: str = "jpg"
+
+class StoredImageProcess(BaseModel):
+    path: str = Field(..., min_length=1, max_length=512)
 
 
 @lru_cache(maxsize=1)
@@ -108,3 +111,44 @@ def upload_image_base64(
         ) from error
 
     return {"path": object_path, "background_removed": background_removed}
+
+
+@router.post("/process-storage-image")
+def process_storage_image(
+    payload: StoredImageProcess,
+    user_id: str = Depends(get_current_user_id),
+):
+    if not payload.path.startswith(f"{user_id}/") or ".." in payload.path.split("/"):
+        raise HTTPException(status_code=403, detail="Bu fotoğrafa erişim iznin yok.")
+
+    storage = get_storage_client().storage.from_(BUCKET_NAME)
+    try:
+        image_bytes = storage.download(payload.path)
+    except Exception as error:
+        logger.exception("Original photo download from Supabase Storage failed.")
+        raise HTTPException(
+            status_code=502,
+            detail="Fotoğraf arka plan kaldırma için okunamadı.",
+        ) from error
+
+    try:
+        processed_bytes = _process_clothing_image(image_bytes)
+    except Exception:
+        logger.exception("Background removal failed; keeping the original photo.")
+        return {"path": payload.path, "background_removed": False}
+
+    processed_path = f"{user_id}/{uuid.uuid4()}.png"
+    try:
+        storage.upload(
+            processed_path,
+            processed_bytes,
+            {"content-type": "image/png"},
+        )
+    except Exception as error:
+        logger.exception("Processed photo upload to Supabase Storage failed.")
+        raise HTTPException(
+            status_code=502,
+            detail="Arka planı kaldırılmış fotoğraf depolanamadı.",
+        ) from error
+
+    return {"path": processed_path, "background_removed": True}

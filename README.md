@@ -6,7 +6,7 @@ Kombin is a wardrobe and outfit-planning app with an Expo mobile client and a Fa
 
 Supabase Auth manages accounts, Supabase Postgres stores wardrobe/outfit data, and private Supabase Storage stores photos. The Expo app talks directly to Supabase for those features; the local FastAPI process is not required for normal browsing, saving, or outfit creation.
 
-The FastAPI service is used only for the existing `rembg` background-removal step when uploading a photo. It verifies the user's Supabase access token and writes processed photos to Supabase Storage. Therefore the API must be reachable over HTTPS only for photo uploads; it does not store app data on its local filesystem.
+The FastAPI service optionally removes photo backgrounds with `rembg`, verifies the user's Supabase access token, and writes processed photos to Supabase Storage. If the service is unavailable, the app uploads the original photo directly to the user's private Storage folder, so a sleeping image API does not prevent saving a clothing item or outfit. The API is required only for background removal, not for normal app data or original photo storage.
 
 ## Supabase setup
 
@@ -16,6 +16,8 @@ The FastAPI service is used only for the existing `rembg` background-removal ste
 4. Copy `mobile/.env.example` to `mobile/.env`. Set the project URL and the public anon/publishable key from Supabase. Never use a `service_role`/secret key in the mobile app.
 
 The app's entry screen offers email/password sign-in or **Continue as guest**; it does not offer a separate public sign-up flow. A guest can make the account permanent from the profile screen: verify an email address, then set a password. Supabase links the email to the existing anonymous user, so the user's ID and wardrobe records remain unchanged. Guests should upgrade before signing out, clearing app data, or switching devices because anonymous credentials cannot be recovered. An email already attached to another Supabase account cannot be merged automatically; the guest session and its data remain intact if linking fails.
+
+Supabase's default Auth email service only sends to project team addresses and is heavily rate-limited. Configure a custom SMTP provider in Supabase Authentication > SMTP Settings to deliver verification emails to ordinary users. The app allows passwords from 4 characters in its own validation; the Supabase Auth password policy must also permit that length, if the project settings allow it. Passwords shorter than 8 characters are not recommended for account security.
 
 ## Local development
 
@@ -35,11 +37,11 @@ The installed app must not use a developer computer's address. Deploy the Docker
 
 Set `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` as private environment variables on the API host. The service key must never be added to EAS or the app. Then build the APK with `cd mobile; eas build --profile preview --platform android`.
 
-The Supabase data and photo storage persist independently of the API host. Free API hosts can sleep, so the first photo upload after inactivity may be delayed or temporarily unavailable; normal wardrobe and outfit data still use Supabase directly. On a memory-constrained host, set `REMBG_MODEL=u2netp` to use the smaller, lower-quality background-removal model.
+The Supabase data and photo storage persist independently of the API host. Free API hosts can sleep, so the first photo upload after inactivity may be delayed or temporarily unavailable; normal wardrobe and outfit data still use Supabase directly. Background removal uses the lightweight `u2netp` model by default; set `REMBG_MODEL=u2net` to use the larger, higher-quality model where memory allows.
 
 ## Security and existing data
 
-The app's tables and private Storage bucket enforce per-user access. Anonymous users use the authenticated database role, so the same per-user RLS policies apply to guests. Keep the Supabase service key server-side and rotate any credentials that were exposed during development. Existing SQLite records are not automatically copied to Supabase; back up and migrate them before removing any local data.
+The app's tables and private Storage bucket enforce per-user access. Anonymous users use the authenticated database role, so the same per-user RLS policies apply to guests. The Storage insert policy restricts direct original-photo uploads to a folder named for the signed-in user's ID. Keep the Supabase service key server-side and rotate any credentials that were exposed during development. Existing SQLite records are not automatically copied to Supabase; back up and migrate them before removing any local data.
 
 ## Validation
 

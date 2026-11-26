@@ -1,6 +1,6 @@
-import * as FileSystem from "expo-file-system/legacy";
 import Constants from "expo-constants";
-import { Platform } from "react-native";
+import { Image as NativeImage } from "react-native";
+import * as ImageManipulator from "expo-image-manipulator";
 import { getSupabaseClient } from "@/lib/supabase";
 
 export type ClothingItem = {
@@ -33,6 +33,7 @@ export type Outfit = {
 const STORAGE_BUCKET = "clothing-images";
 const IMAGE_URL_TTL_SECONDS = 60 * 60 * 24;
 const CACHE_TTL_MS = 30_000;
+const IMAGE_API_TIMEOUT_MS = 180_000;
 type Cache<T> = { userId: string; value: T; expiresAt: number } | null;
 let itemsCache: Cache<ClothingItem[]> = null;
 let outfitsCache: Cache<Outfit[]> = null;
@@ -99,75 +100,123 @@ async function withSignedImage(item: ClothingItem): Promise<ClothingItem> {
   return { ...item, image_url: await getSignedImageUrl(item.image_url) };
 }
 
-async function requestImageProcessing(uri: string): Promise<string> {
-  if (apiConfigurationError) throw new Error(apiConfigurationError);
+async function prepareImageBase64(uri: string): Promise<string> {
+  const { width, height } = await new Promise<{ width: number; height: number }>(
+    (resolve, reject) => {
+      NativeImage.getSize(uri, (imageWidth, imageHeight) => {
+        resolve({ width: imageWidth, height: imageHeight });
+      }, reject);
+    },
+  );
+  const resizeAction =
+    Math.max(width, height) > 1600
+      ? [{ resize: width >= height ? { width: 1600 } : { height: 1600 } }]
+      : [];
+  const result = await ImageManipulator.manipulateAsync(uri, resizeAction, {
+    base64: true,
+    compress: 0.72,
+    format: ImageManipulator.SaveFormat.JPEG,
+  });
+  if (!result.base64) throw new Error("Fotoğraf sıkıştırılamadı.");
+  return result.base64;
+}
+
+function decodeBase64(base64: string): Uint8Array {
+  const binary = globalThis.atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
+async function storeOriginalImage(userId: string, base64: string): Promise<string> {
+  const objectPath = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`;
+  const { data, error } = await getSupabaseClient()
+    .storage.from(STORAGE_BUCKET)
+    .upload(objectPath, decodeBase64(base64), {
+      contentType: "image/jpeg",
+      upsert: false,
+    });
+  throwIfError(error);
+  if (!data?.path) throw new Error("Fotoğraf Supabase Storage'a kaydedilemedi.");
+  return data.path;
+}
+
+export async function uploadImage(uri: string): Promise<string> {
+  const { data, error } = await getSupabaseClient().auth.getSession();
+  throwIfError(error);
+  const session = data.session;
+  if (!session?.access_token) {
+    throw new Error("Fotoğraf yüklemek için giriş yapmalısın.");
+  }
+
+  const base64 = await prepareImageBase64(uri);
+  return storeOriginalImage(session.user.id, base64);
+}
+
+export async function removeImageBackground(path: string): Promise<string | null> {
+  if (apiConfigurationError) return null;
 
   const { data, error } = await getSupabaseClient().auth.getSession();
   throwIfError(error);
   const accessToken = data.session?.access_token;
-  if (!accessToken) throw new Error("Fotoğraf yüklemek için giriş yapmalısın.");
+  if (!accessToken) throw new Error("Oturum bulunamadı. Lütfen yeniden giriş yap.");
 
-  let base64: string;
-  if (Platform.OS === "web") {
-    const imageResponse = await fetch(uri);
-    if (!imageResponse.ok) throw new Error("Seçilen fotoğraf okunamadı.");
-    const blob = await imageResponse.blob();
-    base64 = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result !== "string") {
-          reject(new Error("Fotoğraf kodlanamadı."));
-          return;
-        }
-        resolve(reader.result.split(",")[1] ?? "");
-      };
-      reader.onerror = () => reject(new Error("Fotoğraf okunamadı."));
-      reader.readAsDataURL(blob);
-    });
-  } else {
-    base64 = await FileSystem.readAsStringAsync(uri, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
-  }
-  const fileExt = uri.split(/[?#]/)[0].split(".").pop()?.toLowerCase() || "jpg";
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), IMAGE_API_TIMEOUT_MS);
 
-  let response: Response;
   try {
-    response = await fetch(`${apiUrl}/upload/image-base64`, {
+    const response = await fetch(`${apiUrl}/upload/process-storage-image`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ image_base64: base64, file_ext: fileExt }),
-      signal: AbortSignal.timeout(120_000),
+      body: JSON.stringify({ path }),
+      signal: controller.signal,
     });
+
+    if (!response.ok) {
+      let message = `Fotoğraf servisi başarısız oldu (${response.status}).`;
+      try {
+        const body = await response.json();
+        if (typeof body?.detail === "string") message = body.detail;
+      } catch {
+        // The response may be a non-JSON proxy error.
+      }
+      throw new Error(message);
+    }
+
+    const result: { path: string; background_removed: boolean } = await response.json();
+    return result.background_removed && result.path !== path ? result.path : null;
   } catch (error: unknown) {
-    const name = error instanceof Error ? error.name : "";
-    if (name === "TimeoutError" || name === "AbortError") {
-      throw new Error("Fotoğraf işlenirken zaman aşımına uğradı. Daha küçük bir fotoğraf dene.");
+    if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
+      throw new Error("Arka plan kaldırma zaman aşımına uğradı; orijinal fotoğraf korunuyor.");
     }
-    throw new Error(`Fotoğraf servisine bağlanılamadı (${apiUrl}).`);
+    throw error;
+  } finally {
+    clearTimeout(timeout);
   }
-
-  if (!response.ok) {
-    let message = "Fotoğraf işlenemedi.";
-    try {
-      const body = await response.json();
-      if (typeof body?.detail === "string") message = body.detail;
-    } catch {
-      // The response may be a non-JSON proxy error.
-    }
-    throw new Error(message);
-  }
-
-  const result: { path: string } = await response.json();
-  if (!result.path) throw new Error("Fotoğraf servisi depolama yolunu döndürmedi.");
-  return result.path;
 }
 
-export async function uploadImage(uri: string): Promise<string> {
-  return requestImageProcessing(uri);
+export async function updateItemImage(itemId: number, imagePath: string) {
+  const userId = await getUserId();
+  const { data, error } = await getSupabaseClient()
+    .from("clothing_items")
+    .update({ image_url: imagePath })
+    .eq("user_id", userId)
+    .eq("id", itemId)
+    .select("*")
+    .single();
+  throwIfError(error);
+  itemsCache = null;
+  return data;
+}
+
+export async function deleteStoredImage(path: string) {
+  const { error } = await getSupabaseClient().storage.from(STORAGE_BUCKET).remove([path]);
+  throwIfError(error);
 }
 
 export async function getItems(force = false): Promise<ClothingItem[]> {

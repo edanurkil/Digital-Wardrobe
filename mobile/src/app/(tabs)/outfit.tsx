@@ -272,11 +272,16 @@ export default function OutfitScreen() {
       const uri = await pickImageWithSourceChoice();
       if (uri) {
         try {
-          const imageUrl = await uploadImage(uri);
-          await updateOutfitImage(created.id, imageUrl);
+          const imagePath = await uploadImage(uri);
+          await updateOutfitImage(created.id, imagePath);
           notify('Harika', 'Kombin fotoğrafınla birlikte kaydedildi.');
-        } catch {
-          notify('Kaydedildi', 'Kombin kaydedildi ama fotoğraf yüklenemedi.');
+        } catch (error: unknown) {
+          notify(
+            'Kombin kaydedildi',
+            error instanceof Error
+              ? `Kombin fotoğrafı yüklenemedi: ${error.message}`
+              : 'Kombin kaydedildi ama fotoğraf yüklenemedi.',
+          );
         }
       }
     } catch {

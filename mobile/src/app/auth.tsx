@@ -26,8 +26,8 @@ export default function AuthScreen() {
       notify("E-posta geçersiz", "Geçerli bir e-posta adresi gir.");
       return;
     }
-    if (password.length < 6) {
-      notify("Şifre çok kısa", "Şifre en az 6 karakter olmalı.");
+    if (password.length < 4) {
+      notify("Şifre çok kısa", "Şifre en az 4 karakter olmalı.");
       return;
     }
 

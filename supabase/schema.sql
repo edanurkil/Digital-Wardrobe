@@ -104,6 +104,16 @@ insert into storage.buckets (id, name, public)
 values ('clothing-images', 'clothing-images', false)
 on conflict (id) do update set public = false;
 
+drop policy if exists "Users upload their clothing photos" on storage.objects;
+create policy "Users upload their clothing photos"
+  on storage.objects
+  for insert
+  to authenticated
+  with check (
+    bucket_id = 'clothing-images'
+    and (storage.foldername(name))[1] = (select auth.uid())::text
+  );
+
 drop policy if exists "Users view their clothing photos" on storage.objects;
 create policy "Users view their clothing photos"
   on storage.objects

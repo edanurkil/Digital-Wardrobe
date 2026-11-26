@@ -248,7 +248,7 @@ export default function WardrobeScreen() {
                   <Image
                     source={{ uri: item.image_url }}
                     style={styles.image}
-                    resizeMode="cover"
+                    resizeMode="contain"
                   />
                 ) : (
                   <Ionicons

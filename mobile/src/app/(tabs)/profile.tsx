@@ -1,4 +1,4 @@
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
@@ -24,6 +24,7 @@ type ClothingItem = {
   name: string;
   category: string;
   color: string;
+  image_url: string | null;
 };
 
 type Outfit = {
@@ -42,7 +43,12 @@ type Outfit = {
 
 type UpgradeStep = "email" | "confirmation" | "password";
 
-function confirmAsync(title: string, message: string): Promise<boolean> {
+function confirmAsync(
+  title: string,
+  message: string,
+  confirmLabel = "Sil",
+  destructive = true,
+): Promise<boolean> {
   if (Platform.OS === "web") {
     const webConfirm = typeof globalThis !== "undefined" ? globalThis.confirm : undefined;
     return Promise.resolve(
@@ -52,12 +58,17 @@ function confirmAsync(title: string, message: string): Promise<boolean> {
   return new Promise((resolve) => {
     Alert.alert(title, message, [
       { text: "Vazgeç", style: "cancel", onPress: () => resolve(false) },
-      { text: "Sil", style: "destructive", onPress: () => resolve(true) },
+      {
+        text: confirmLabel,
+        style: destructive ? "destructive" : "default",
+        onPress: () => resolve(true),
+      },
     ]);
   });
 }
 
 export default function ProfileScreen() {
+  const router = useRouter();
   const [outfits, setOutfits] = useState<Outfit[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -77,6 +88,27 @@ export default function ProfileScreen() {
     } catch (error: unknown) {
       notify(
         "Çıkış yapılamadı",
+        error instanceof Error ? error.message : "Lütfen tekrar dene.",
+      );
+    }
+  };
+
+  const handleExistingAccountLogin = async () => {
+    const confirmed = await confirmAsync(
+      "Mevcut hesaba giriş yap",
+      "Misafir oturumun kapanacak. Bu misafir dolabındaki veriler mevcut hesabına aktarılmaz ve bu misafir hesaba tekrar erişemeyebilirsin. Devam etmeden önce misafir hesabını kalıcı yapman daha güvenli.",
+      "Giriş ekranına geç",
+      false,
+    );
+    if (!confirmed) return;
+
+    try {
+      const { error } = await getSupabaseClient().auth.signOut();
+      if (error) throw error;
+      router.replace("/auth");
+    } catch (error: unknown) {
+      notify(
+        "Giriş ekranı açılamadı",
         error instanceof Error ? error.message : "Lütfen tekrar dene.",
       );
     }
@@ -116,8 +148,37 @@ export default function ProfileScreen() {
           "Hesap bağlama kapalı",
           "Supabase Dashboard > Authentication ayarlarında Manual Linking seçeneğini etkinleştir.",
         );
+      } else if (normalizedMessage.includes("email address not authorized")) {
+        notify(
+          "E-posta gönderilemedi",
+          "Supabase varsayılan e-posta servisi yalnızca proje ekibindeki adreslere e-posta gönderiyor. Herkese gönderebilmek için Supabase Authentication > SMTP Settings bölümünde özel SMTP sağlayıcısı yapılandırılmalı.",
+        );
       } else {
         notify("Hesap yükseltilemedi", message);
+      }
+    } finally {
+      setUpgradeBusy(false);
+    }
+  };
+
+  const resendUpgradeEmail = async () => {
+    setUpgradeBusy(true);
+    try {
+      const { error } = await getSupabaseClient().auth.resend({
+        type: "email_change",
+        email: upgradeEmail,
+      });
+      if (error) throw error;
+      notify("E-posta tekrar gönderildi", "Gelen kutunu ve spam klasörünü kontrol et.");
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "E-posta tekrar gönderilemedi.";
+      if (message.toLowerCase().includes("email address not authorized")) {
+        notify(
+          "E-posta gönderilemedi",
+          "Supabase varsayılan e-posta servisi yalnızca proje ekibindeki adreslere e-posta gönderiyor. Herkese gönderebilmek için özel SMTP yapılandırılmalı.",
+        );
+      } else {
+        notify("E-posta tekrar gönderilemedi", message);
       }
     } finally {
       setUpgradeBusy(false);
@@ -148,8 +209,8 @@ export default function ProfileScreen() {
   };
 
   const saveUpgradePassword = async () => {
-    if (upgradePassword.length < 6) {
-      notify("Şifre çok kısa", "Şifre en az 6 karakter olmalı.");
+    if (upgradePassword.length < 4) {
+      notify("Şifre çok kısa", "Şifre en az 4 karakter olmalı.");
       return;
     }
     if (upgradePassword !== upgradePasswordConfirmation) {
@@ -288,6 +349,15 @@ export default function ProfileScreen() {
               <Ionicons name="person-add-outline" size={18} color={UI.colors.textPrimary} />
               <Text style={styles.upgradeButtonText}>Hesabı kalıcı yap</Text>
             </Pressable>
+            <Pressable
+              style={styles.existingAccountButton}
+              onPress={handleExistingAccountLogin}
+              accessibilityRole="button"
+            >
+              <Text style={styles.existingAccountButtonText}>
+                Mevcut hesabıma giriş yap
+              </Text>
+            </Pressable>
             <Text style={styles.guestWarning}>
               Hesabı yükseltmeden çıkış yapma veya uygulamayı silme; misafir hesabına yeniden erişemeyebilirsin.
             </Text>
@@ -329,8 +399,10 @@ export default function ProfileScreen() {
                 <Image
                   source={{ uri: item.outfit_image_url }}
                   style={styles.outfitPhoto}
+                  resizeMode="contain"
                 />
               )}
+              <OutfitPreview outfit={item} />
               <Text style={styles.cardDate}>
                 {new Date(item.created_at).toLocaleDateString("tr-TR", {
                   day: "numeric",
@@ -409,6 +481,9 @@ export default function ProfileScreen() {
                     <Text style={styles.upgradeButtonText}>Doğrulamayı kontrol et</Text>
                   )}
                 </Pressable>
+                <Pressable onPress={resendUpgradeEmail} disabled={upgradeBusy}>
+                  <Text style={styles.modalLink}>E-postayı tekrar gönder</Text>
+                </Pressable>
                 <Pressable
                   onPress={() => setUpgradeStep("email")}
                   disabled={upgradeBusy}
@@ -425,7 +500,7 @@ export default function ProfileScreen() {
                   style={styles.input}
                   value={upgradePassword}
                   onChangeText={setUpgradePassword}
-                  placeholder="Şifre (en az 6 karakter)"
+                  placeholder="Şifre (en az 4 karakter)"
                   placeholderTextColor={UI.colors.textMuted}
                   secureTextEntry
                   autoCapitalize="none"
@@ -468,6 +543,56 @@ export default function ProfileScreen() {
           </View>
         </View>
       </Modal>
+    </View>
+  );
+}
+
+function OutfitPreview({ outfit }: { outfit: Outfit }) {
+  return (
+    <View style={styles.lookPreview}>
+      <View style={styles.mannequin}>
+        <View style={styles.mannequinHead} />
+        <View style={styles.mannequinHair} />
+        <View style={styles.mannequinNeck} />
+        <View style={styles.mannequinShoulders} />
+        <View style={styles.mannequinTorso} />
+        <View style={styles.mannequinWaist} />
+        <View style={[styles.mannequinArm, styles.mannequinLeftArm]} />
+        <View style={[styles.mannequinArm, styles.mannequinRightArm]} />
+        <View style={styles.mannequinHips} />
+        <View style={[styles.mannequinLeg, styles.mannequinLeftLeg]} />
+        <View style={[styles.mannequinLeg, styles.mannequinRightLeg]} />
+        <View style={[styles.mannequinFoot, styles.mannequinLeftFoot]} />
+        <View style={[styles.mannequinFoot, styles.mannequinRightFoot]} />
+      </View>
+
+      {outfit.dress?.image_url ? (
+        <Image source={{ uri: outfit.dress.image_url }} style={styles.dressLayer} resizeMode="contain" />
+      ) : (
+        <>
+          {outfit.top?.image_url ? (
+            <Image source={{ uri: outfit.top.image_url }} style={styles.topLayer} resizeMode="contain" />
+          ) : null}
+          {outfit.bottom?.image_url ? (
+            <Image source={{ uri: outfit.bottom.image_url }} style={styles.bottomLayer} resizeMode="contain" />
+          ) : null}
+        </>
+      )}
+      {outfit.outerwear?.image_url ? (
+        <Image source={{ uri: outfit.outerwear.image_url }} style={styles.outerwearLayer} resizeMode="contain" />
+      ) : null}
+      {outfit.shoes?.image_url ? (
+        <Image source={{ uri: outfit.shoes.image_url }} style={styles.shoesLayer} resizeMode="contain" />
+      ) : null}
+      {outfit.bag?.image_url ? (
+        <Image source={{ uri: outfit.bag.image_url }} style={styles.bagLayer} resizeMode="contain" />
+      ) : null}
+      {outfit.accessory?.image_url ? (
+        <Image source={{ uri: outfit.accessory.image_url }} style={styles.accessoryLayer} resizeMode="contain" />
+      ) : null}
+      <View style={styles.previewLabel}>
+        <Text style={styles.previewLabelText}>MANKENDE TAHMİNİ GÖRÜNÜM</Text>
+      </View>
     </View>
   );
 }
@@ -527,6 +652,20 @@ const styles = StyleSheet.create({
     color: UI.colors.textPrimary,
     fontSize: 13,
     fontWeight: "700",
+  },
+  existingAccountButton: {
+    alignItems: "center",
+    borderColor: UI.colors.border,
+    borderRadius: UI.radius.md,
+    borderWidth: 1,
+    justifyContent: "center",
+    marginTop: UI.spacing.sm,
+    minHeight: 44,
+  },
+  existingAccountButtonText: {
+    color: UI.colors.accent,
+    fontSize: 13,
+    fontWeight: "600",
   },
   disabled: { opacity: 0.6 },
   modalBackdrop: {
@@ -658,6 +797,187 @@ const styles = StyleSheet.create({
     borderRadius: UI.radius.sm,
     marginBottom: UI.spacing.md,
     backgroundColor: UI.colors.surfaceAlt,
+  },
+  lookPreview: {
+    alignSelf: "center",
+    backgroundColor: "#E8E2DC",
+    borderColor: UI.colors.border,
+    borderRadius: UI.radius.lg,
+    borderWidth: 1,
+    height: 330,
+    marginBottom: UI.spacing.md,
+    maxWidth: 420,
+    overflow: "hidden",
+    position: "relative",
+    width: "100%",
+  },
+  mannequin: {
+    alignItems: "center",
+    height: 290,
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 6,
+  },
+  mannequinHead: {
+    backgroundColor: "#C7B4A6",
+    borderColor: "rgba(94, 72, 61, 0.12)",
+    borderRadius: 22,
+    borderWidth: 1,
+    height: 44,
+    position: "absolute",
+    top: 4,
+    width: 38,
+  },
+  mannequinHair: {
+    backgroundColor: "#4B3A32",
+    borderRadius: 20,
+    height: 18,
+    position: "absolute",
+    top: 2,
+    width: 42,
+  },
+  mannequinNeck: {
+    backgroundColor: "#C7B4A6",
+    height: 18,
+    position: "absolute",
+    top: 43,
+    width: 20,
+  },
+  mannequinShoulders: {
+    backgroundColor: "#C7B4A6",
+    borderRadius: 36,
+    height: 38,
+    position: "absolute",
+    top: 56,
+    width: 118,
+  },
+  mannequinTorso: {
+    backgroundColor: "#C7B4A6",
+    borderBottomLeftRadius: 26,
+    borderBottomRightRadius: 26,
+    height: 88,
+    position: "absolute",
+    top: 68,
+    width: 82,
+  },
+  mannequinWaist: {
+    backgroundColor: "#C7B4A6",
+    borderRadius: 16,
+    height: 22,
+    position: "absolute",
+    top: 145,
+    width: 68,
+  },
+  mannequinArm: {
+    backgroundColor: "#C7B4A6",
+    borderRadius: 10,
+    height: 112,
+    position: "absolute",
+    top: 72,
+    width: 18,
+  },
+  mannequinLeftArm: { left: "25%", transform: [{ rotate: "7deg" }] },
+  mannequinRightArm: { right: "25%", transform: [{ rotate: "-7deg" }] },
+  mannequinHips: {
+    backgroundColor: "#C7B4A6",
+    borderRadius: 24,
+    height: 38,
+    position: "absolute",
+    top: 158,
+    width: 88,
+  },
+  mannequinLeg: {
+    backgroundColor: "#C7B4A6",
+    borderRadius: 12,
+    height: 96,
+    position: "absolute",
+    top: 188,
+    width: 28,
+  },
+  mannequinLeftLeg: { left: "39%" },
+  mannequinRightLeg: { right: "39%" },
+  mannequinFoot: {
+    backgroundColor: "#C7B4A6",
+    borderRadius: 9,
+    height: 14,
+    position: "absolute",
+    top: 278,
+    width: 34,
+  },
+  mannequinLeftFoot: { left: "36%" },
+  mannequinRightFoot: { right: "36%" },
+  dressLayer: {
+    height: 220,
+    left: "29%",
+    position: "absolute",
+    top: 48,
+    width: "42%",
+    zIndex: 2,
+  },
+  topLayer: {
+    height: 124,
+    left: "31%",
+    position: "absolute",
+    top: 56,
+    width: "38%",
+    zIndex: 2,
+  },
+  bottomLayer: {
+    height: 126,
+    left: "32%",
+    position: "absolute",
+    top: 152,
+    width: "36%",
+    zIndex: 2,
+  },
+  outerwearLayer: {
+    height: 150,
+    left: "27%",
+    position: "absolute",
+    top: 52,
+    width: "46%",
+    zIndex: 3,
+  },
+  shoesLayer: {
+    bottom: 26,
+    height: 38,
+    left: "34%",
+    position: "absolute",
+    width: "32%",
+    zIndex: 4,
+  },
+  bagLayer: {
+    height: 72,
+    position: "absolute",
+    right: "12%",
+    top: 128,
+    width: "22%",
+    zIndex: 5,
+  },
+  accessoryLayer: {
+    height: 48,
+    position: "absolute",
+    right: "18%",
+    top: 92,
+    width: "18%",
+    zIndex: 5,
+  },
+  previewLabel: {
+    backgroundColor: "rgba(23, 20, 26, 0.82)",
+    bottom: 0,
+    left: 0,
+    paddingHorizontal: UI.spacing.sm,
+    paddingVertical: 7,
+    position: "absolute",
+    right: 0,
+  },
+  previewLabelText: {
+    color: UI.colors.textSecondary,
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 1,
+    textAlign: "center",
   },
   cardDate: {
     fontSize: 12,

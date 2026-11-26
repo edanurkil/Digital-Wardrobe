@@ -1,0 +1,10 @@
+.git
+.expo
+.vscode
+.claude
+node_modules
+dist
+android/.gradle
+android/app/build
+android/build
+*.apk

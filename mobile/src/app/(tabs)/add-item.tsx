@@ -20,7 +20,13 @@ import {
   SEASONS,
   UI,
 } from '@/constants/design';
-import { createItem, uploadImage } from '../../services/api';
+import {
+  createItem,
+  deleteStoredImage,
+  removeImageBackground,
+  updateItemImage,
+  uploadImage,
+} from '../../services/api';
 import { pickImageWithSourceChoice } from '../../utils/imagePicker';
 
 function notify(title: string, message: string) {
@@ -33,6 +39,31 @@ function notify(title: string, message: string) {
   }
 
   Alert.alert(title, message);
+}
+
+async function finishBackgroundRemoval(itemId: number, originalPath: string) {
+  try {
+    const processedPath = await removeImageBackground(originalPath);
+    if (!processedPath) {
+      notify(
+        'Kıyafet kaydedildi',
+        'Arka plan kaldırılamadı; orijinal fotoğrafın güvende ve kayıtta görünüyor.',
+      );
+      return;
+    }
+
+    await updateItemImage(itemId, processedPath);
+    await deleteStoredImage(originalPath);
+    notify('Arka plan kaldırıldı', 'Kıyafet fotoğrafın güncellendi.');
+  } catch (error: unknown) {
+    console.error('Background removal failed after saving the clothing item:', error);
+    notify(
+      'Kıyafet kaydedildi',
+      error instanceof Error
+        ? `${error.message} Orijinal fotoğrafın korunuyor.`
+        : 'Arka plan kaldırılamadı. Orijinal fotoğrafın korunuyor.',
+    );
+  }
 }
 
 export default function AddItemScreen() {
@@ -76,28 +107,46 @@ export default function AddItemScreen() {
     }
 
     setSaving(true);
+    let uploadedImagePath: string | undefined;
     try {
-      let imageUrl: string | undefined;
       if (imageUri) {
-        imageUrl = await uploadImage(imageUri);
+        uploadedImagePath = await uploadImage(imageUri);
       }
 
-      await createItem({
+      const created = await createItem({
         name,
         color: color.trim(),
         category: category === 'Diğer' ? otherCategory.trim() : category,
         season: selectedSeasons.join(','),
-        image_url: imageUrl,
+        image_url: uploadedImagePath,
       });
-      notify('Başarılı', 'Kıyafet dolabına eklendi.');
+      notify(
+        'Kıyafet kaydedildi',
+        uploadedImagePath
+          ? 'Fotoğraf kaydedildi. Arka plan kaldırma işlemi arka planda devam ediyor; bu sırada uygulamayı kullanabilirsin.'
+          : 'Kıyafet dolabına eklendi.',
+      );
       setName('');
       setColor('');
       setImageUri(null);
       setOtherCategory('');
       setSelectedSeasons(['Tüm Mevsimler']);
       router.push('/(tabs)');
-    } catch (err: any) {
-      notify('Hata', err.message ?? 'Bir şeyler ters gitti.');
+      if (uploadedImagePath) {
+        void finishBackgroundRemoval(created.id, uploadedImagePath);
+      }
+    } catch (error: unknown) {
+      let message = error instanceof Error ? error.message : 'Bir şeyler ters gitti.';
+      if (uploadedImagePath) {
+        try {
+          await deleteStoredImage(uploadedImagePath);
+        } catch (cleanupError: unknown) {
+          const cleanupMessage =
+            cleanupError instanceof Error ? cleanupError.message : 'Fotoğraf temizlenemedi.';
+          message = `${message} (${cleanupMessage})`;
+        }
+      }
+      notify('Kayıt başarısız', message);
     } finally {
       setSaving(false);
     }
@@ -122,7 +171,11 @@ export default function AddItemScreen() {
       <Text style={styles.label}>Fotoğraf</Text>
       <Pressable style={styles.imagePicker} onPress={pickImage}>
         {imageUri ? (
-          <Image source={{ uri: imageUri }} style={styles.previewImage} />
+          <Image
+            source={{ uri: imageUri }}
+            style={styles.previewImage}
+            resizeMode="contain"
+          />
         ) : (
           <View style={styles.imagePrompt}>
             <Ionicons name="camera-outline" size={25} color={UI.colors.accent} />
@@ -131,6 +184,9 @@ export default function AddItemScreen() {
           </View>
         )}
       </Pressable>
+      <Text style={styles.imageHint}>
+        Fotoğraf kırpılmadan eklenir. Servis geçici olarak ulaşılamazsa orijinal fotoğrafın kaydedilir.
+      </Text>
 
       <Text style={styles.label}>İsim</Text>
       <TextInput
