@@ -67,6 +67,18 @@ function confirmAsync(
   });
 }
 
+function outfitItems(outfit: Outfit) {
+  return [
+    ["ELBİSE", outfit.dress],
+    ["ÜST", outfit.top],
+    ["ALT", outfit.bottom],
+    ["DIŞ GİYİM", outfit.outerwear],
+    ["AYAKKABI", outfit.shoes],
+    ["AKSESUAR", outfit.accessory],
+    ["ÇANTA", outfit.bag],
+  ] as const;
+}
+
 export default function ProfileScreen() {
   const router = useRouter();
   const [outfits, setOutfits] = useState<Outfit[]>([]);
@@ -258,17 +270,6 @@ export default function ProfileScreen() {
       Alert.alert("Hata", error?.message ?? "Kombin silinemedi.");
     }
   };
-
-  const outfitItems = (outfit: Outfit) =>
-    [
-      ["ELBİSE", outfit.dress],
-      ["ÜST", outfit.top],
-      ["ALT", outfit.bottom],
-      ["DIŞ GİYİM", outfit.outerwear],
-      ["AYAKKABI", outfit.shoes],
-      ["AKSESUAR", outfit.accessory],
-      ["ÇANTA", outfit.bag],
-    ] as const;
 
   useFocusEffect(
     useCallback(() => {
@@ -548,51 +549,26 @@ export default function ProfileScreen() {
 }
 
 function OutfitPreview({ outfit }: { outfit: Outfit }) {
+  const imageItems = outfitItems(outfit).filter(([, clothing]) => clothing?.image_url);
+  if (imageItems.length === 0) return null;
+
   return (
     <View style={styles.lookPreview}>
-      <View style={styles.mannequin}>
-        <View style={styles.mannequinHead} />
-        <View style={styles.mannequinHair} />
-        <View style={styles.mannequinNeck} />
-        <View style={styles.mannequinShoulders} />
-        <View style={styles.mannequinTorso} />
-        <View style={styles.mannequinWaist} />
-        <View style={[styles.mannequinArm, styles.mannequinLeftArm]} />
-        <View style={[styles.mannequinArm, styles.mannequinRightArm]} />
-        <View style={styles.mannequinHips} />
-        <View style={[styles.mannequinLeg, styles.mannequinLeftLeg]} />
-        <View style={[styles.mannequinLeg, styles.mannequinRightLeg]} />
-        <View style={[styles.mannequinFoot, styles.mannequinLeftFoot]} />
-        <View style={[styles.mannequinFoot, styles.mannequinRightFoot]} />
-      </View>
-
-      {outfit.dress?.image_url ? (
-        <Image source={{ uri: outfit.dress.image_url }} style={styles.dressLayer} resizeMode="contain" />
-      ) : (
-        <>
-          {outfit.top?.image_url ? (
-            <Image source={{ uri: outfit.top.image_url }} style={styles.topLayer} resizeMode="contain" />
-          ) : null}
-          {outfit.bottom?.image_url ? (
-            <Image source={{ uri: outfit.bottom.image_url }} style={styles.bottomLayer} resizeMode="contain" />
-          ) : null}
-        </>
+      {imageItems.map(([label, clothing]) =>
+        clothing?.image_url ? (
+          <View key={label} style={styles.lookItem}>
+            <Image
+              source={{ uri: clothing.image_url }}
+              style={styles.lookItemImage}
+              resizeMode="contain"
+            />
+            <Text style={styles.lookItemLabel}>{label}</Text>
+            <Text style={styles.lookItemName} numberOfLines={1}>
+              {clothing.name}
+            </Text>
+          </View>
+        ) : null,
       )}
-      {outfit.outerwear?.image_url ? (
-        <Image source={{ uri: outfit.outerwear.image_url }} style={styles.outerwearLayer} resizeMode="contain" />
-      ) : null}
-      {outfit.shoes?.image_url ? (
-        <Image source={{ uri: outfit.shoes.image_url }} style={styles.shoesLayer} resizeMode="contain" />
-      ) : null}
-      {outfit.bag?.image_url ? (
-        <Image source={{ uri: outfit.bag.image_url }} style={styles.bagLayer} resizeMode="contain" />
-      ) : null}
-      {outfit.accessory?.image_url ? (
-        <Image source={{ uri: outfit.accessory.image_url }} style={styles.accessoryLayer} resizeMode="contain" />
-      ) : null}
-      <View style={styles.previewLabel}>
-        <Text style={styles.previewLabelText}>MANKENDE TAHMİNİ GÖRÜNÜM</Text>
-      </View>
     </View>
   );
 }
@@ -800,184 +776,38 @@ const styles = StyleSheet.create({
   },
   lookPreview: {
     alignSelf: "center",
-    backgroundColor: "#E8E2DC",
-    borderColor: UI.colors.border,
-    borderRadius: UI.radius.lg,
-    borderWidth: 1,
-    height: 330,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: UI.spacing.sm,
     marginBottom: UI.spacing.md,
     maxWidth: 420,
-    overflow: "hidden",
-    position: "relative",
     width: "100%",
   },
-  mannequin: {
-    alignItems: "center",
-    height: 290,
-    left: 0,
-    position: "absolute",
-    right: 0,
-    top: 6,
-  },
-  mannequinHead: {
-    backgroundColor: "#C7B4A6",
-    borderColor: "rgba(94, 72, 61, 0.12)",
-    borderRadius: 22,
+  lookItem: {
+    backgroundColor: "#F2EEEA",
+    borderColor: UI.colors.border,
+    borderRadius: UI.radius.md,
     borderWidth: 1,
-    height: 44,
-    position: "absolute",
-    top: 4,
-    width: 38,
+    overflow: "hidden",
+    padding: UI.spacing.sm,
+    width: "47%",
   },
-  mannequinHair: {
-    backgroundColor: "#4B3A32",
-    borderRadius: 20,
-    height: 18,
-    position: "absolute",
-    top: 2,
-    width: 42,
+  lookItemImage: {
+    height: 136,
+    width: "100%",
   },
-  mannequinNeck: {
-    backgroundColor: "#C7B4A6",
-    height: 18,
-    position: "absolute",
-    top: 43,
-    width: 20,
-  },
-  mannequinShoulders: {
-    backgroundColor: "#C7B4A6",
-    borderRadius: 36,
-    height: 38,
-    position: "absolute",
-    top: 56,
-    width: 118,
-  },
-  mannequinTorso: {
-    backgroundColor: "#C7B4A6",
-    borderBottomLeftRadius: 26,
-    borderBottomRightRadius: 26,
-    height: 88,
-    position: "absolute",
-    top: 68,
-    width: 82,
-  },
-  mannequinWaist: {
-    backgroundColor: "#C7B4A6",
-    borderRadius: 16,
-    height: 22,
-    position: "absolute",
-    top: 145,
-    width: 68,
-  },
-  mannequinArm: {
-    backgroundColor: "#C7B4A6",
-    borderRadius: 10,
-    height: 112,
-    position: "absolute",
-    top: 72,
-    width: 18,
-  },
-  mannequinLeftArm: { left: "25%", transform: [{ rotate: "7deg" }] },
-  mannequinRightArm: { right: "25%", transform: [{ rotate: "-7deg" }] },
-  mannequinHips: {
-    backgroundColor: "#C7B4A6",
-    borderRadius: 24,
-    height: 38,
-    position: "absolute",
-    top: 158,
-    width: 88,
-  },
-  mannequinLeg: {
-    backgroundColor: "#C7B4A6",
-    borderRadius: 12,
-    height: 96,
-    position: "absolute",
-    top: 188,
-    width: 28,
-  },
-  mannequinLeftLeg: { left: "39%" },
-  mannequinRightLeg: { right: "39%" },
-  mannequinFoot: {
-    backgroundColor: "#C7B4A6",
-    borderRadius: 9,
-    height: 14,
-    position: "absolute",
-    top: 278,
-    width: 34,
-  },
-  mannequinLeftFoot: { left: "36%" },
-  mannequinRightFoot: { right: "36%" },
-  dressLayer: {
-    height: 220,
-    left: "29%",
-    position: "absolute",
-    top: 48,
-    width: "42%",
-    zIndex: 2,
-  },
-  topLayer: {
-    height: 124,
-    left: "31%",
-    position: "absolute",
-    top: 56,
-    width: "38%",
-    zIndex: 2,
-  },
-  bottomLayer: {
-    height: 126,
-    left: "32%",
-    position: "absolute",
-    top: 152,
-    width: "36%",
-    zIndex: 2,
-  },
-  outerwearLayer: {
-    height: 150,
-    left: "27%",
-    position: "absolute",
-    top: 52,
-    width: "46%",
-    zIndex: 3,
-  },
-  shoesLayer: {
-    bottom: 26,
-    height: 38,
-    left: "34%",
-    position: "absolute",
-    width: "32%",
-    zIndex: 4,
-  },
-  bagLayer: {
-    height: 72,
-    position: "absolute",
-    right: "12%",
-    top: 128,
-    width: "22%",
-    zIndex: 5,
-  },
-  accessoryLayer: {
-    height: 48,
-    position: "absolute",
-    right: "18%",
-    top: 92,
-    width: "18%",
-    zIndex: 5,
-  },
-  previewLabel: {
-    backgroundColor: "rgba(23, 20, 26, 0.82)",
-    bottom: 0,
-    left: 0,
-    paddingHorizontal: UI.spacing.sm,
-    paddingVertical: 7,
-    position: "absolute",
-    right: 0,
-  },
-  previewLabelText: {
-    color: UI.colors.textSecondary,
+  lookItemLabel: {
+    color: UI.colors.accent,
     fontSize: 9,
     fontWeight: "700",
-    letterSpacing: 1,
-    textAlign: "center",
+    letterSpacing: 1.1,
+    marginTop: 4,
+  },
+  lookItemName: {
+    color: UI.colors.textPrimary,
+    fontSize: 12,
+    fontWeight: "600",
+    marginTop: 3,
   },
   cardDate: {
     fontSize: 12,

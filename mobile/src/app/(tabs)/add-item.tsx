@@ -41,9 +41,13 @@ function notify(title: string, message: string) {
   Alert.alert(title, message);
 }
 
-async function finishBackgroundRemoval(itemId: number, originalPath: string) {
+async function finishBackgroundRemoval(
+  itemId: number,
+  originalPath: string,
+  sourceUri: string,
+) {
   try {
-    const processedPath = await removeImageBackground(originalPath);
+    const processedPath = await removeImageBackground(originalPath, sourceUri);
     if (!processedPath) {
       notify(
         'Kıyafet kaydedildi',
@@ -132,8 +136,8 @@ export default function AddItemScreen() {
       setOtherCategory('');
       setSelectedSeasons(['Tüm Mevsimler']);
       router.push('/(tabs)');
-      if (uploadedImagePath) {
-        void finishBackgroundRemoval(created.id, uploadedImagePath);
+      if (uploadedImagePath && imageUri) {
+        void finishBackgroundRemoval(created.id, uploadedImagePath, imageUri);
       }
     } catch (error: unknown) {
       let message = error instanceof Error ? error.message : 'Bir şeyler ters gitti.';

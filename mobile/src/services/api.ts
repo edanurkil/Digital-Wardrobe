@@ -155,7 +155,23 @@ export async function uploadImage(uri: string): Promise<string> {
   return storeOriginalImage(session.user.id, base64);
 }
 
-export async function removeImageBackground(path: string): Promise<string | null> {
+function isImageProcessingResult(
+  value: unknown,
+): value is { path: string; background_removed: boolean } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "path" in value &&
+    typeof value.path === "string" &&
+    "background_removed" in value &&
+    typeof value.background_removed === "boolean"
+  );
+}
+
+export async function removeImageBackground(
+  path: string,
+  sourceUri?: string,
+): Promise<string | null> {
   if (apiConfigurationError) return null;
 
   const { data, error } = await getSupabaseClient().auth.getSession();
@@ -167,7 +183,7 @@ export async function removeImageBackground(path: string): Promise<string | null
   const timeout = setTimeout(() => controller.abort(), IMAGE_API_TIMEOUT_MS);
 
   try {
-    const response = await fetch(`${apiUrl}/upload/process-storage-image`, {
+    let response = await fetch(`${apiUrl}/upload/process-storage-image`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -176,6 +192,19 @@ export async function removeImageBackground(path: string): Promise<string | null
       body: JSON.stringify({ path }),
       signal: controller.signal,
     });
+
+    if (response.status === 404 && sourceUri) {
+      const imageBase64 = await prepareImageBase64(sourceUri);
+      response = await fetch(`${apiUrl}/upload/image-base64`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ image_base64: imageBase64, file_ext: "jpg" }),
+        signal: controller.signal,
+      });
+    }
 
     if (!response.ok) {
       let message = `Fotoğraf servisi başarısız oldu (${response.status}).`;
@@ -188,7 +217,15 @@ export async function removeImageBackground(path: string): Promise<string | null
       throw new Error(message);
     }
 
-    const result: { path: string; background_removed: boolean } = await response.json();
+    const body: unknown = await response.json();
+    if (!isImageProcessingResult(body)) {
+      throw new Error("Fotoğraf servisi geçersiz yanıt verdi.");
+    }
+
+    const result = body;
+    if (!result.background_removed && result.path !== path) {
+      await deleteStoredImage(result.path);
+    }
     return result.background_removed && result.path !== path ? result.path : null;
   } catch (error: unknown) {
     if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
