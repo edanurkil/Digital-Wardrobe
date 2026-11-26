@@ -4,11 +4,12 @@ import io
 import logging
 import os
 import uuid
+from functools import lru_cache
 
 from fastapi import APIRouter, Depends, HTTPException
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, Field
-from rembg import remove
+from rembg import new_session, remove
 
 from ..auth import get_current_user_id
 from ..storage import BUCKET_NAME, get_storage_client
@@ -21,6 +22,11 @@ router = APIRouter(prefix="/upload", tags=["upload"])
 class Base64ImageUpload(BaseModel):
     image_base64: str = Field(..., min_length=1, max_length=16_000_000)
     file_ext: str = "jpg"
+
+
+@lru_cache(maxsize=1)
+def _get_rembg_session():
+    return new_session(REMBG_MODEL)
 
 
 def _trim_transparent_edges(image: Image.Image) -> Image.Image:
@@ -36,7 +42,7 @@ def _process_clothing_image(image_bytes: bytes) -> bytes:
         image = image.convert("RGBA")
         image.thumbnail((1280, 1280), Image.Resampling.LANCZOS)
 
-        processed = remove(image, model_name=REMBG_MODEL)
+        processed = remove(image, session=_get_rembg_session())
         if processed.mode != "RGBA":
             processed = processed.convert("RGBA")
 
@@ -80,10 +86,12 @@ def upload_image_base64(
     try:
         processed_bytes = _process_clothing_image(image_bytes)
         file_ext, content_type = "png", "image/png"
+        background_removed = True
     except Exception:
         logger.exception("Background removal failed; storing the original photo.")
         processed_bytes = image_bytes
         file_ext, content_type = source_formats[source_format]
+        background_removed = False
 
     object_path = f"{user_id}/{uuid.uuid4()}.{file_ext}"
     try:
@@ -99,4 +107,4 @@ def upload_image_base64(
             detail="Fotoğraf Supabase Storage'a yüklenemedi.",
         ) from error
 
-    return {"path": object_path}
+    return {"path": object_path, "background_removed": background_removed}
